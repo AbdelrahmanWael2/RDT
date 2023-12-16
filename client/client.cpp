@@ -118,7 +118,7 @@ void receiveServerData()
         cout << "Cannot open file!" << endl;
         return;
     }
-    uint16_t last_received = 0; // sequence number of the last recieved packet
+    uint32_t last_received = 0; // sequence number of the last recieved packet
     while (true)
     {
         fromlen = sizeof serv_addr;
@@ -128,6 +128,8 @@ void receiveServerData()
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
         if (packet.len < 16)
         {
+            wf.write(packet.data, packet.len);
+            wf.flush();
             printf("File received successfully \n");
             break;
         }

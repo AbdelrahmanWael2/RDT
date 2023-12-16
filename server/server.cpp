@@ -35,8 +35,8 @@ typedef struct packet
 typedef struct ack_packet
 {
     uint16_t chsum;
-    uint16_t ackno;
     uint16_t len;
+    uint32_t ackno;
 } ack_packet;
 
 typedef struct MessageArgs
@@ -55,12 +55,12 @@ uint16_t calculateChecksum(const char *data, uint16_t len)
     return static_cast<uint16_t>(~sum);
 }
 
-packet make_packet(uint16_t seqno, uint16_t len, char data[])
+packet make_packet(uint32_t seqno, uint16_t len, char data[])
 {
     packet p;
     p.chsum = 0;
     p.len = len;
-    p.seqno = seqno + 2;
+    p.seqno = seqno;
 
     p.chsum = calculateChecksum(data, len);
 
@@ -78,14 +78,15 @@ vector<packet> readFile(char *fileName)
     if (fp == nullptr)
         return packets;
     int nBytes = 0;
-    int seqno = 0; // Initialize sequence number
+    int seqno = 1; // Initialize sequence number
+    int count = 0;
     while (fread(&content[nBytes], sizeof(char), 1, fp) == 1)
     {
         nBytes++;
         if (nBytes == MSS)
         {
-            cout << "chunk " << content << endl; // correct
-
+            // cout << "chunk " << content << endl; // correct
+            count++;
             packet p = make_packet(seqno++, nBytes, content);
             packets.push_back(p);
             // cout << "packet " << p.data << endl;
@@ -94,11 +95,13 @@ vector<packet> readFile(char *fileName)
     }
     if (nBytes != 0)
     {
+        // count++;
         char last_content[nBytes];
         memcpy(last_content, content, nBytes);
         packet p = make_packet(seqno, nBytes, last_content);
         packets.push_back(p);
-        cout << "last packet " << last_content << endl;
+        // cout << "last packet " << last_content << endl;
+        cout << "size = " << count * 16 << endl;
     }
     fclose(fp);
     free(content);
@@ -129,14 +132,14 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
     // for (int i = 0; i < n; i++)
-    //     cout << packets[i].data;  wrong !!!!!!!!!!!!!!!!!!
+    //     cout << packets[i].seqno << endl; // wrong !!!!!!!!!!!!!!!!!!
 
     // Congestion Control Variables
     int cwnd = INITIAL_CWND;
     int ssthresh = 64; // ssthresh
     int dupACKcount = 0;
 
-    for (int i = 0; i < static_cast<int>(n);)
+    for (int i = 0; i < static_cast<int>(n); i++)
     {
         if ((SEED % 100) < (PROBABILITY_LOSS * 100))
         {
@@ -145,12 +148,8 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
             continue; // Skip sending this packet
         }
 
-        // Sending packets within the congestion window
-        for (int j = i; j < min(i + cwnd, static_cast<int>(n)); ++j)
-        {
-            sendto(sockfd, &packets[j], sizeof(packets[j]), 0,
-                   (sockaddr *)&client_address, sizeof(client_address));
-        }
+        sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+               (sockaddr *)&client_address, sizeof(client_address));
 
         // wait acknowledgement from client
         ack_packet ack;
@@ -212,7 +211,7 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
             }
 
             // Move to the next unacknowledged packet
-            i = min(i + cwnd, static_cast<int>(n));
+            // i = min(i + cwnd, static_cast<int>(n));
         }
     }
 }
