@@ -27,7 +27,7 @@ typedef struct packet
     /* Header */
     uint16_t chsum;
     uint16_t len;
-    uint16_t seqno;
+    uint32_t seqno;
     /* Data */
     char data[MSS];
 } packet;
@@ -69,7 +69,8 @@ packet make_packet(uint16_t seqno, uint16_t len, char data[])
 }
 
 // read the contents of a file into a vector of packet structs
-vector<packet> readFile(char *fileName) {
+vector<packet> readFile(char *fileName)
+{
     FILE *fp;
     vector<packet> packets;
     char *content = (char *)malloc(10000);
@@ -77,24 +78,32 @@ vector<packet> readFile(char *fileName) {
     if (fp == nullptr)
         return packets;
     int nBytes = 0;
-    int seqno = 0;  // Initialize sequence number
-    while (fread(&content[nBytes], sizeof(char), 1, fp) == 1) {
+    int seqno = 0; // Initialize sequence number
+    while (fread(&content[nBytes], sizeof(char), 1, fp) == 1)
+    {
         nBytes++;
-        if (nBytes == MSS) {
+        if (nBytes == MSS)
+        {
+            cout << "chunk " << content << endl; // correct
+
             packet p = make_packet(seqno++, nBytes, content);
             packets.push_back(p);
+            // cout << "packet " << p.data << endl;
             nBytes = 0;
         }
     }
-    if (nBytes != 0) {
-        packet p = make_packet(seqno, nBytes, content);
+    if (nBytes != 0)
+    {
+        char last_content[nBytes];
+        memcpy(last_content, content, nBytes);
+        packet p = make_packet(seqno, nBytes, last_content);
         packets.push_back(p);
+        cout << "last packet " << last_content << endl;
     }
     fclose(fp);
     free(content);
     return packets;
 }
-
 
 // wait for a specified amount of time for a socket to become readable
 int timeOut(int sockfd)
@@ -119,6 +128,8 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
 {
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
+    // for (int i = 0; i < n; i++)
+    //     cout << packets[i].data;  wrong !!!!!!!!!!!!!!!!!!
 
     // Congestion Control Variables
     int cwnd = INITIAL_CWND;
@@ -137,7 +148,7 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
         // Sending packets within the congestion window
         for (int j = i; j < min(i + cwnd, static_cast<int>(n)); ++j)
         {
-            sendto(sockfd, &packets[j], sizeof(packet), 0,
+            sendto(sockfd, &packets[j], sizeof(packets[j]), 0,
                    (sockaddr *)&client_address, sizeof(client_address));
         }
 
@@ -205,7 +216,6 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
         }
     }
 }
-
 
 void handle_connection(void *args)
 {
