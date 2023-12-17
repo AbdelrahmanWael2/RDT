@@ -64,47 +64,45 @@ packet make_packet(uint32_t seqno, uint16_t len, char data[])
 
     p.chsum = calculateChecksum(data, len);
 
-    strcpy(p.data, data);
+    for (int i = 0; i < len; i++)
+        p.data[i] = data[i];
     return p;
 }
 
 // read the contents of a file into a vector of packet structs
 vector<packet> readFile(char *fileName)
 {
-    FILE *fp;
     vector<packet> packets;
-    char *content = (char *)malloc(10000);
-    fp = fopen(fileName, "rb");
-    if (fp == nullptr)
+    // Open the input file in binary mode
+    std::ifstream inputFile(fileName, std::ios::binary);
+
+    // Check if the input file is opened successfully
+    if (!inputFile.is_open())
+    {
+        std::cerr << "Error opening input file." << std::endl;
         return packets;
-    int nBytes = 0;
+    }
+
+    // Define a buffer to read and write data in chunks
+    char buffer[MSS];
     int seqno = 1; // Initialize sequence number
-    int count = 0;
-    while (fread(&content[nBytes], sizeof(char), 1, fp) == 1)
+
+    // Read and write in chunks
+    while (inputFile.read(buffer, MSS))
     {
-        nBytes++;
-        if (nBytes == MSS)
-        {
-            // cout << "chunk " << content << endl; // correct
-            count++;
-            packet p = make_packet(seqno++, nBytes, content);
-            packets.push_back(p);
-            // cout << "packet " << p.data << endl;
-            nBytes = 0;
-        }
-    }
-    if (nBytes != 0)
-    {
-        // count++;
-        char last_content[nBytes];
-        memcpy(last_content, content, nBytes);
-        packet p = make_packet(seqno, nBytes, last_content);
+        packet p = make_packet(seqno++, MSS, buffer);
         packets.push_back(p);
-        // cout << "last packet " << last_content << endl;
-        cout << "size = " << count * 16 << endl;
     }
-    fclose(fp);
-    free(content);
+
+    // If there are remaining bytes (less than bufferSize), write them separately
+    if (inputFile.gcount() > 0)
+    {
+        packet p = make_packet(seqno, inputFile.gcount(), buffer);
+        packets.push_back(p);
+    }
+
+    // Close the input and output files
+    inputFile.close();
     return packets;
 }
 
@@ -131,8 +129,6 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
 {
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
-    // for (int i = 0; i < n; i++)
-    //     cout << packets[i].seqno << endl; // wrong !!!!!!!!!!!!!!!!!!
 
     // Congestion Control Variables
     int cwnd = INITIAL_CWND;
