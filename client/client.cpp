@@ -124,8 +124,13 @@ void receiveServerData()
         fromlen = sizeof serv_addr;
         packet packet;
         ack_packet ack;
+        ack.ackno = 2;
         // receive data in buffer
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
+        if(packet.seq > ack.ackno ){
+            continue;
+        }
+        
         if (packet.len < 16)
         {
             wf.write(packet.data, packet.len);
@@ -137,7 +142,7 @@ void receiveServerData()
         if (packet.seq <= last_received)
         {
             // duplicate packet
-            ack.ackno = last_received + 1;
+            ack.ackno = packet.seq + 1;
         }
         else
         {
@@ -146,11 +151,11 @@ void receiveServerData()
             wf.flush();
             ack.ackno = packet.seq + 1;
             last_received = packet.seq;
+            // Send acknowledgement after receiving and consuming a data packet
+            ack.len = 0;
+            cout << ack.ackno << endl;
+            sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
         }
-        // Send acknowledgement after receiving and consuming a data packet
-        ack.len = 0;
-
-        sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     }
     wf.close();
     if (!wf.good())

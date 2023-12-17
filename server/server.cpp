@@ -109,23 +109,37 @@ vector<packet> readFile(char *fileName)
 }
 
 // wait for a specified amount of time for a socket to become readable
-int timeOut(int sockfd)
+int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
 {
     fd_set read_fds;
     FD_ZERO(&read_fds);
     FD_SET(sockfd, &read_fds);
+
     // Set up the timeout
-    struct timeval timeout
-    {
-    };
+    struct timeval timeout;
     timeout.tv_sec = TIMEOUT_SECONDS;
     timeout.tv_usec = 0;
 
     // Wait for the socket to become readable or for the timeout to expire
     int status = select(sockfd + 1, &read_fds, nullptr, nullptr, &timeout);
 
-    return status;
+    if (status > 0 && FD_ISSET(sockfd, &read_fds))
+    {
+        // ACK received
+        socklen_t client_addr_len = sizeof(client_address);
+        long bytes_received = recvfrom(sockfd, &ack, sizeof(ack), 0,
+                                       (sockaddr *)&client_address, &client_addr_len);
+        cout << "recieved ack :" <<  ack.ackno << endl;
+        //cout << bytes_received << endl;
+        if (bytes_received > 0)
+        {
+            return 1; // Valid ACK received
+        }
+    }
+
+    return status; // Timeout or error
 }
+
 
 void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
 {
@@ -141,24 +155,27 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
 
     for (int i = 0; i < static_cast<int>(n); i++)
     {
-        if ((SEED % 100) < (PROBABILITY_LOSS * 100))
+        if ((rand() % 100) < (0.1 * 100))
         {
             cout << "Simulating packet loss for packet with seqno: " << packets[i].seqno << endl;
-            i++;
+            //i++;
             continue; // Skip sending this packet
         }
-
+        cout << "sending with seqno :" << i+1 << endl;
         sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
                (sockaddr *)&client_address, sizeof(client_address));
 
         // wait acknowledgement from client
         ack_packet ack;
+        int expected_ack = i+2;
         socklen_t client_addr_len = sizeof(client_address);
-        int status = timeOut(sockfd);
+        int status = timeOut(sockfd, ack, client_address);
+        
         if (status == -1)
         {
             // An error occurred
             cerr << "Error waiting for socket: " << strerror(errno) << endl;
+            
             return;
         }
         else if (status == 0)
@@ -169,17 +186,29 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
             // Implement timeout actions: Set ssthresh, reduce cwnd, and go to Slow Start
             ssthresh = cwnd / 2;
             cwnd = INITIAL_CWND;
-            i -= cwnd; // Go back and retransmit
+            cout << "Here " << i << endl;
+            i -= cwnd ; // Go back and retransmit
+            continue;
         }
         else
         {
             // ACK received
-            long bytes_received = recvfrom(sockfd, &ack, sizeof(ack), 0,
-                                           (sockaddr *)&client_address, &client_addr_len);
+            // long bytes_received = recvfrom(sockfd, &ack, sizeof(ack), 0,
+            //                                (sockaddr *)&client_address, &client_addr_len);
 
-            if (bytes_received <= 0)
-            {
-                break;
+           // cout <<ack.ackno << endl;
+
+            // if (bytes_received <= 0)
+            // {
+            //     cout << "DONE" << endl;
+            //     break;
+            // }
+            // cout << ack.ackno << expected_ack << endl;
+            if(ack.ackno != expected_ack){
+                i--;
+                
+                cout << "Resending .. " << endl;
+                continue;
             }
 
             // Check for duplicate ACKs
