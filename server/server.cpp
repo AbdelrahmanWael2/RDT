@@ -140,7 +140,7 @@ int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
     return status; // Timeout or error
 }
 
-void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
+void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *fileName)
 {
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
@@ -235,6 +235,92 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
     }
 }
 
+void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, char *fileName)
+{
+    vector<packet> packets = readFile(fileName);
+    unsigned int n = packets.size();
+
+    int base = 0;       // base of the sending window
+    int nextSeq = 0;    // next sequence number to be sent
+    int windowSize = 4; 
+
+    vector<bool> ackReceived(n, false);
+
+    while (base < n)
+    {
+        // Send packets in the window
+        for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
+        {
+            if (!ackReceived[i])
+            {
+                cout << "Sending packet with seqno: " << packets[i].seqno << endl;
+                sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                       (sockaddr *)&client_address, sizeof(client_address));
+            }
+        }
+
+        // Wait for acknowledgments
+        int old_base = base;
+        for (int i = base; i < min(old_base + windowSize, static_cast<int>(n)); ++i)
+        {   //cout << "alo"  << endl;
+            if (!ackReceived[i])
+            {
+                ack_packet ack;
+                socklen_t client_addr_len = sizeof(client_address);
+                int status = timeOut(sockfd, ack, client_address);
+                cout << "Status: " << status << endl;
+
+                if (status == -1)
+                {
+                    cerr << "Error waiting for socket: " << strerror(errno) << endl;
+                    return;
+                }
+                else if (status == 0)
+                {
+                    // Timeout, retransmit the unacknowledged packets in the window
+                    cout << "Timeout expired, retransmitting packets in the window" << endl;
+
+                    // Retransmit packets in the window
+                    for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
+                    {
+                        if (!ackReceived[i])
+                        {
+                            cout << "Retransmitting packet with seqno: " << packets[i].seqno << endl;
+                            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                                   (sockaddr *)&client_address, sizeof(client_address));
+                        }
+                    }
+                    // Continue waiting for acknowledgments
+                    continue;
+                }
+                else
+                {   //cout << "HERE" << endl;
+                    // Acknowledgment received
+                    if (ack.ackno == packets[i].seqno + 1)
+                    {
+                        cout << "Received ACK for packet with seqno: " << ack.ackno << endl;
+                        ackReceived[i] = true;
+
+                        // Move the base forward
+                        while (base < n && ackReceived[base])
+                            ++base;
+
+                        cout << "base: " << base << endl;
+
+                        // Update nextSeq based on the received acknowledgment and window size
+                        nextSeq = max(nextSeq, static_cast<int>(ack.ackno) + 1);
+                        //break;
+                    }
+                    else
+                    {
+                        // Duplicate ACK received, ignore
+                    }
+                }
+            }
+        }
+    }
+}
+
 void handle_connection(void *args)
 {
     // Get the socket and client address from the arguments
@@ -249,7 +335,7 @@ void handle_connection(void *args)
     sockaddr_in client_address = message_args->client_address;
     string filePath = message_args->filePath;
     // should handle the send of data in chunks
-    sendDataChunks(newSocket, client_address, (char *)filePath.c_str());
+    sendDataChunks_Selective_Repeat(newSocket, client_address, (char *)filePath.c_str());
     // Close the connection
     close(newSocket);
 }

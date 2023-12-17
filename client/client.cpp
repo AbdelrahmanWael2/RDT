@@ -14,10 +14,12 @@
 #include <vector>
 #include <fstream>
 #include <string.h>
+#include <algorithm>
 
 using namespace std;
 
 #define MAX_BUFFER_SIZE 1024
+const int INITIAL_CWND = 1;
 
 typedef struct packet
 {
@@ -108,7 +110,7 @@ void readClientData()
         clientData[i++] = line;
 }
 
-void receiveServerData()
+void receiveServerData_Stop_and_Wait()
 {
 
     // open output file for server data
@@ -165,10 +167,89 @@ void receiveServerData()
     }
 }
 
+void receiveServerData_Selective_Repeat()
+{
+    ofstream wf("server.out", ios::out | ios::binary);
+    if (!wf)
+    {
+        cout << "Cannot open file!" << endl;
+        return;
+    }
+
+    vector<packet> receivedPackets;
+    int expectedSeq = 1;  // Next expected sequence number
+
+    while (true)
+    {
+        fromlen = sizeof serv_addr;
+        packet receivedPacket;
+        ack_packet ack;
+
+        // Receive the packet
+        byte_count = recvfrom(sock_fd, &receivedPacket, sizeof(receivedPacket), 0,
+                              (struct sockaddr *)&serv_addr, &fromlen);
+
+        
+
+        
+
+        // Check if the received packet is within the expected window
+        if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)
+        {
+            // Check for duplicate packets
+            auto it = find_if(receivedPackets.begin(), receivedPackets.end(),
+                              [&](const packet &p) { return p.seq == receivedPacket.seq; });
+
+            if (it == receivedPackets.end())
+            {
+                cout << "Received packet with seqno: " << receivedPacket.seq << endl;
+                receivedPackets.push_back(receivedPacket);
+
+                // Sort received packets based on sequence number
+                sort(receivedPackets.begin(), receivedPackets.end(),
+                     [](const packet &a, const packet &b) { return a.seq < b.seq; });
+
+                // Send acknowledgment
+                ack.len = 0;
+                ack.ackno = receivedPacket.seq + 1;
+                sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+
+                // Update expected sequence number
+                while (!receivedPackets.empty() && receivedPackets.front().seq == expectedSeq)
+                {
+                    wf.write(receivedPackets.front().data, receivedPackets.front().len);
+                    wf.flush();
+                    cout << "File data written for seqno: " << receivedPackets.front().seq << endl;
+                    receivedPackets.erase(receivedPackets.begin());
+                    ++expectedSeq;
+                }
+            }
+            else
+            {
+                // Duplicate packet, ignore
+                cout << "Duplicate packet with seqno: " << receivedPacket.seq << endl;
+            }
+        }
+        else
+        {
+            // Packet is outside the window range, ignore
+            cout << "Packet out of range with seqno: " << receivedPacket.seq << endl;
+        }
+    }
+
+    wf.close();
+    if (!wf.good())
+    {
+        cout << "Error occurred at writing time!" << endl;
+        return;
+    }
+}
+
+
 int main()
 {
     initializeClient();
-    receiveServerData();
+    receiveServerData_Selective_Repeat();
     free(pck);
     close(sock_fd);
     return 0;
