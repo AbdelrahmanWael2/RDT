@@ -129,8 +129,8 @@ int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
         socklen_t client_addr_len = sizeof(client_address);
         long bytes_received = recvfrom(sockfd, &ack, sizeof(ack), 0,
                                        (sockaddr *)&client_address, &client_addr_len);
-        cout << "recieved ack :" <<  ack.ackno << endl;
-        //cout << bytes_received << endl;
+        cout << "recieved ack :" << ack.ackno << endl;
+        // cout << bytes_received << endl;
         if (bytes_received > 0)
         {
             return 1; // Valid ACK received
@@ -139,7 +139,6 @@ int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
 
     return status; // Timeout or error
 }
-
 
 void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
 {
@@ -152,30 +151,36 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
     int cwnd = INITIAL_CWND;
     int ssthresh = 64; // ssthresh
     int dupACKcount = 0;
+    bool loss = false;
 
-    for (int i = 0; i < static_cast<int>(n); i++)
+    for (int i = 0; i < static_cast<int>(n);)
     {
         if ((rand() % 100) < (0.1 * 100))
         {
             cout << "Simulating packet loss for packet with seqno: " << packets[i].seqno << endl;
-            //i++;
+            loss = true;
             continue; // Skip sending this packet
         }
-        cout << "sending with seqno :" << i+1 << endl;
-        sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
-               (sockaddr *)&client_address, sizeof(client_address));
+
+        cout << "sending with seqno :" << i + 1 << endl;
+        if (!loss)
+        {
+            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                   (sockaddr *)&client_address, sizeof(client_address));
+        }
+        loss = false;
 
         // wait acknowledgement from client
         ack_packet ack;
-        int expected_ack = i+2;
+        int expected_ack = i + 2;
         socklen_t client_addr_len = sizeof(client_address);
         int status = timeOut(sockfd, ack, client_address);
-        
+        cout << "Status: " << status << endl;
+
         if (status == -1)
         {
             // An error occurred
             cerr << "Error waiting for socket: " << strerror(errno) << endl;
-            
             return;
         }
         else if (status == 0)
@@ -183,64 +188,49 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
             // The timeout expired
             cerr << "Timeout expired" << endl;
 
-            // Implement timeout actions: Set ssthresh, reduce cwnd, and go to Slow Start
+            // Implement timeout actions: Set ssthresh, reduce cwnd, and retransmit
             ssthresh = cwnd / 2;
             cwnd = INITIAL_CWND;
             cout << "Here " << i << endl;
-            i -= cwnd ; // Go back and retransmit
+            // Retransmit the current packet
+            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                   (sockaddr *)&client_address, sizeof(client_address));
             continue;
         }
         else
         {
-            // ACK received
-            // long bytes_received = recvfrom(sockfd, &ack, sizeof(ack), 0,
-            //                                (sockaddr *)&client_address, &client_addr_len);
-
-           // cout <<ack.ackno << endl;
-
-            // if (bytes_received <= 0)
-            // {
-            //     cout << "DONE" << endl;
-            //     break;
-            // }
-            // cout << ack.ackno << expected_ack << endl;
-            if(ack.ackno != expected_ack){
-                i--;
-                
-                cout << "Resending .. " << endl;
-                continue;
-            }
-
-            // Check for duplicate ACKs
-            if (ack.ackno == packets[i].seqno)
+            if (ack.ackno == expected_ack)
             {
-                dupACKcount++;
-            }
-            else
-            {
+                // Acknowledgment is as expected, move to the next packet
+                i++;
+                // Reset duplicate ACK count
                 dupACKcount = 0;
             }
-
-            // Update cwnd based on Slow Start, Congestion Avoidance, and Fast Recovery
-            if (dupACKcount == 3)
-            {
-                // Fast Recovery
-                ssthresh = cwnd / 2;
-                cwnd = ssthresh + 3 * MSS;
-            }
-            else if (dupACKcount > 3)
-            {
-                // Avoid excessive increase during Fast Recovery
-                cwnd += MSS;
-            }
             else
             {
-                // Slow Start or Congestion Avoidance
-                cwnd += (dupACKcount < 3) ? cwnd : MSS;
-            }
+                // Duplicate ACK received, trigger retransmission
+                dupACKcount++;
+                if (dupACKcount == 3)
+                {
+                    // Fast Recovery
+                    ssthresh = cwnd / 2;
+                    cwnd = ssthresh + 3 * MSS;
+                }
+                else if (dupACKcount > 3)
+                {
+                    // Avoid excessive increase during Fast Recovery
+                    cwnd += MSS;
+                }
+                else
+                {
+                    // Slow Start or Congestion Avoidance
+                    cwnd += MSS;
+                }
 
-            // Move to the next unacknowledged packet
-            // i = min(i + cwnd, static_cast<int>(n));
+                // Retransmit the current packet
+                sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                       (sockaddr *)&client_address, sizeof(client_address));
+            }
         }
     }
 }

@@ -124,38 +124,38 @@ void receiveServerData()
         fromlen = sizeof serv_addr;
         packet packet;
         ack_packet ack;
-        ack.ackno = 2;
+        ack.ackno = last_received + 1;
+
         // receive data in buffer
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
-        if(packet.seq > ack.ackno ){
-            continue;
-        }
-        
-        if (packet.len < 16)
-        {
+
+        if(byte_count < 16){ // last
+            // In-order packet received
+            printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
             wf.write(packet.data, packet.len);
             wf.flush();
-            printf("File received successfully \n");
-            break;
+            cout << "File transfer complete" << endl;
         }
-        printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
-        if (packet.seq <= last_received)
+        if (packet.seq == ack.ackno)
         {
-            // duplicate packet
-            ack.ackno = packet.seq + 1;
-        }
-        else
-        {
-            // write received data
+            // In-order packet received
+            printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
             wf.write(packet.data, packet.len);
             wf.flush();
-            ack.ackno = packet.seq + 1;
             last_received = packet.seq;
-            // Send acknowledgement after receiving and consuming a data packet
+
+            // Send acknowledgment after receiving and consuming a data packet
             ack.len = 0;
-            cout << ack.ackno << endl;
+            ack.ackno++;
+            cout << "Sending ACK: " << ack.ackno << endl;
             sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
         }
+        else if (packet.seq > ack.ackno)
+        {
+            // Out-of-order packet, consider buffering or just continue
+            continue;
+        }
+        // else: Duplicate packet, ignore
     }
     wf.close();
     if (!wf.good())
