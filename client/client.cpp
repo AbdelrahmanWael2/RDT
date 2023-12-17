@@ -15,6 +15,7 @@
 #include <fstream>
 #include <string.h>
 #include <algorithm>
+#define MSS 2
 
 using namespace std;
 
@@ -131,7 +132,8 @@ void receiveServerData_Stop_and_Wait()
         // receive data in buffer
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
 
-        if(byte_count < 16){ // last
+        if (byte_count < 16)
+        { // last
             // In-order packet received
             printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
             wf.write(packet.data, packet.len);
@@ -169,7 +171,7 @@ void receiveServerData_Stop_and_Wait()
 
 void receiveServerData_Selective_Repeat()
 {
-    ofstream wf("server.out", ios::out | ios::binary);
+    ofstream wf("client.out", ios::out | ios::binary);
     if (!wf)
     {
         cout << "Cannot open file!" << endl;
@@ -177,7 +179,13 @@ void receiveServerData_Selective_Repeat()
     }
 
     vector<packet> receivedPackets;
-    int expectedSeq = 1;  // Next expected sequence number
+    int expectedSeq = 1; // Next expected sequence number
+
+    // Congestion Control Variables
+    int cwnd = INITIAL_CWND;
+    int ssthresh = 10; // ssthresh
+    int dupACKcount = 0;
+    
 
     while (true)
     {
@@ -189,16 +197,13 @@ void receiveServerData_Selective_Repeat()
         byte_count = recvfrom(sock_fd, &receivedPacket, sizeof(receivedPacket), 0,
                               (struct sockaddr *)&serv_addr, &fromlen);
 
-        
-
-        
-
         // Check if the received packet is within the expected window
-        if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)
+        if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + cwnd)
         {
             // Check for duplicate packets
             auto it = find_if(receivedPackets.begin(), receivedPackets.end(),
-                              [&](const packet &p) { return p.seq == receivedPacket.seq; });
+                              [&](const packet &p)
+                              { return p.seq == receivedPacket.seq; });
 
             if (it == receivedPackets.end())
             {
@@ -207,7 +212,8 @@ void receiveServerData_Selective_Repeat()
 
                 // Sort received packets based on sequence number
                 sort(receivedPackets.begin(), receivedPackets.end(),
-                     [](const packet &a, const packet &b) { return a.seq < b.seq; });
+                     [](const packet &a, const packet &b)
+                     { return a.seq < b.seq; });
 
                 // Send acknowledgment
                 ack.len = 0;
@@ -223,6 +229,16 @@ void receiveServerData_Selective_Repeat()
                     receivedPackets.erase(receivedPackets.begin());
                     ++expectedSeq;
                 }
+
+                // Simulate congestion control
+                if (cwnd < ssthresh)
+                {
+                    cwnd *= 2; // Slow Start
+                }
+                else
+                {
+                    cwnd += MSS; // Congestion Avoidance
+                }
             }
             else
             {
@@ -232,7 +248,7 @@ void receiveServerData_Selective_Repeat()
         }
         else
         {
-            // Packet is outside the window range, ignore
+            // Packet is outside the window range or simulated loss, ignore
             cout << "Packet out of range with seqno: " << receivedPacket.seq << endl;
         }
     }
@@ -244,7 +260,6 @@ void receiveServerData_Selective_Repeat()
         return;
     }
 }
-
 
 int main()
 {

@@ -10,7 +10,7 @@
 #include <numeric>
 #include <fstream>
 #include <algorithm>
-#define MSS 16 // Maximum Segment Size
+#define MSS 2 // Maximum Segment Size
 
 using namespace std;
 
@@ -242,27 +242,51 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
     int base = 0;       // base of the sending window
     int nextSeq = 0;    // next sequence number to be sent
-    int windowSize = 4; 
+    int windowSize = 4; // set your desired window size
 
     vector<bool> ackReceived(n, false);
+
+    // Congestion Control Variables
+    int cwnd = INITIAL_CWND;
+    int ssthresh = 10; // ssthresh
+    int dupACKcount = 0;
+    bool loss = false;
 
     while (base < n)
     {
         // Send packets in the window
-        for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
+        for (int i = base; i < min(base + min(cwnd, windowSize), static_cast<int>(n)); ++i)
         {
-            if (!ackReceived[i])
+            if ((rand() % 100) < (PROBABILITY_LOSS * 100))
+            {
+                cout << "Simulating packet loss for packet with seqno: " << packets[i].seqno << endl;
+                loss = true;
+                continue; // Skip sending this packet
+            }
+
+            if (!loss)
             {
                 cout << "Sending packet with seqno: " << packets[i].seqno << endl;
                 sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
                        (sockaddr *)&client_address, sizeof(client_address));
             }
+            loss = false;
+            // Simulate congestion control
+            if (cwnd < ssthresh)
+            {
+                cwnd *= 2; // Slow Start
+            }
+            else
+            {
+                cwnd += MSS; // Congestion Avoidance
+            }
+            cout << "window" << cwnd << endl;
         }
 
         // Wait for acknowledgments
         int old_base = base;
         for (int i = base; i < min(old_base + windowSize, static_cast<int>(n)); ++i)
-        {   //cout << "alo"  << endl;
+        {
             if (!ackReceived[i])
             {
                 ack_packet ack;
@@ -280,6 +304,10 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     // Timeout, retransmit the unacknowledged packets in the window
                     cout << "Timeout expired, retransmitting packets in the window" << endl;
 
+                    // Implement timeout actions: Set ssthresh, reduce cwnd, and retransmit
+                    ssthresh = cwnd / 2;
+                    cwnd = INITIAL_CWND;
+
                     // Retransmit packets in the window
                     for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
                     {
@@ -294,7 +322,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     continue;
                 }
                 else
-                {   //cout << "HERE" << endl;
+                {
                     // Acknowledgment received
                     if (ack.ackno == packets[i].seqno + 1)
                     {
@@ -309,11 +337,31 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
                         // Update nextSeq based on the received acknowledgment and window size
                         nextSeq = max(nextSeq, static_cast<int>(ack.ackno) + 1);
-                        //break;
                     }
                     else
                     {
-                        // Duplicate ACK received, ignore
+                        // Duplicate ACK received, trigger retransmission
+                        dupACKcount++;
+                        if (dupACKcount == 3)
+                        {
+                            // Fast Recovery
+                            ssthresh = cwnd / 2;
+                            cwnd = ssthresh + 3 * MSS;
+                        }
+                        else if (dupACKcount > 3)
+                        {
+                            // Avoid excessive increase during Fast Recovery
+                            cwnd += MSS;
+                        }
+                        else
+                        {
+                            // Slow Start or Congestion Avoidance
+                            cwnd += MSS;
+                        }
+
+                        // Retransmit the current packet
+                        sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                               (sockaddr *)&client_address, sizeof(client_address));
                     }
                 }
             }
