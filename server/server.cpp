@@ -155,7 +155,7 @@ void sendDataChunks(int sockfd, sockaddr_in client_address, char *fileName)
 
     for (int i = 0; i < static_cast<int>(n);)
     {
-        if ((rand() % 100) < (0.1 * 100))
+        if ((rand() % 100) < (PROBABILITY_LOSS * 100))
         {
             cout << "Simulating packet loss for packet with seqno: " << packets[i].seqno << endl;
             loss = true;
