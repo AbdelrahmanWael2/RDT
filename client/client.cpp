@@ -108,14 +108,34 @@ void readClientData()
         clientData[i++] = line;
 }
 
+char *outputName(const std::string &fileName)
+{
+    // Find the last occurrence of '.' in the filename
+    size_t dotPosition = fileName.find_last_of('.');
+
+    if (dotPosition == std::string::npos)
+        return strdup(fileName.c_str());
+
+    // Extract the extension (including the dot)
+    std::string extension = fileName.substr(dotPosition);
+
+    // Build the new string ("output." + extension)
+    std::string result = "output" + extension;
+
+    // Allocate memory for the new string and copy the content
+    char *resultCStr = strdup(result.c_str());
+
+    return resultCStr;
+}
+
 void receiveServerData()
 {
 
     // open output file for server data
-    ofstream wf("server.out", ios::out | ios::binary);
-    if (!wf)
+    std::ofstream outputFile(outputName(clientData[2]), std::ios::binary);
+    if (!outputFile.is_open())
     {
-        cout << "Cannot open file!" << endl;
+        std::cerr << "Error opening output file." << std::endl;
         return;
     }
     uint32_t last_received = 0; // sequence number of the last recieved packet
@@ -128,8 +148,7 @@ void receiveServerData()
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
         if (packet.len < 16)
         {
-            wf.write(packet.data, packet.len);
-            wf.flush();
+            outputFile.write(packet.data, packet.len);
             printf("File received successfully \n");
             break;
         }
@@ -142,8 +161,7 @@ void receiveServerData()
         else
         {
             // write received data
-            wf.write(packet.data, packet.len);
-            wf.flush();
+            outputFile.write(packet.data, packet.len);
             ack.ackno = packet.seq + 1;
             last_received = packet.seq;
         }
@@ -152,12 +170,7 @@ void receiveServerData()
 
         sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     }
-    wf.close();
-    if (!wf.good())
-    {
-        cout << "Error occurred at writing time!" << endl;
-        return;
-    }
+    outputFile.close();
 }
 
 int main()
