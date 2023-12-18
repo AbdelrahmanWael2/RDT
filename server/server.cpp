@@ -14,7 +14,7 @@
 
 using namespace std;
 
-const int TIMEOUT_SECONDS = 5;
+const int TIMEOUT_SECONDS = 1;
 // const int PORT = 8080;
 const int BUFFER_SIZE = 16;
 const int INITIAL_CWND = 1;
@@ -67,6 +67,13 @@ packet make_packet(uint32_t seqno, uint16_t len, char data[])
     for (int i = 0; i < len; i++)
         p.data[i] = data[i];
     return p;
+}
+
+packet defect_packet(packet p)
+{
+    packet pnew = p;
+    pnew.data[0] = p.data[0] ^ 1;
+    return pnew;
 }
 
 // read the contents of a file into a vector of packet structs
@@ -145,8 +152,6 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
 {
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
-    // for (int i = 0; i < n; i++)
-    //     cout << packets[i].seqno << endl; // wrong !!!!!!!!!!!!!!!!!!
 
     // Congestion Control Variables
     int cwnd = INITIAL_CWND;
@@ -156,17 +161,25 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
 
     for (int i = 0; i < static_cast<int>(n);)
     {
+        cout << "cwind = " << cwnd << endl;
+        packet packet_to_send = packets[i];
         if ((rand() % 100) < (PROBABILITY_LOSS * 100))
         {
-            cout << "Simulating packet loss for packet with seqno: " << packets[i].seqno << endl;
+            cout << "Simulating packet loss for packet with seqno: " << packet_to_send.seqno << endl;
             loss = true;
             continue; // Skip sending this packet
+        }
+
+        if ((rand() % 100) < (PROBABILITY_LOSS * 100))
+        {
+            cout << "Simulating packet defect for packet with seqno: " << packet_to_send.seqno << endl;
+            packet_to_send = defect_packet(packets[i]); // defect one bit of the packet
         }
 
         cout << "sending with seqno :" << i + 1 << endl;
         if (!loss)
         {
-            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+            sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                    (sockaddr *)&client_address, sizeof(client_address));
         }
         loss = false;
@@ -194,7 +207,7 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
             cwnd = INITIAL_CWND;
             cout << "Here " << i << endl;
             // Retransmit the current packet
-            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+            sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                    (sockaddr *)&client_address, sizeof(client_address));
             continue;
         }
@@ -229,7 +242,7 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
                 }
 
                 // Retransmit the current packet
-                sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                        (sockaddr *)&client_address, sizeof(client_address));
             }
         }
@@ -256,10 +269,16 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
         // Send packets in the window
         for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
         {
+            packet packet_to_send = packets[i];
+            // if ((rand() % 100) < (PROBABILITY_LOSS * 100))
+            // {
+            //     cout << "Simulating packet defect for packet with seqno: " << packet_to_send.seqno << endl;
+            //     packet_to_send = defect_packet(packets[i]); // defect one bit of the packet
+            // }
             if (!ackReceived[i])
             {
-                cout << "Sending packet with seqno: " << packets[i].seqno << endl;
-                sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                cout << "Sending packet with seqno: " << packet_to_send.seqno << endl;
+                sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                        (sockaddr *)&client_address, sizeof(client_address));
             }
         }
@@ -344,7 +363,7 @@ void handle_connection(void *args)
     sockaddr_in client_address = message_args->client_address;
     string filePath = message_args->filePath;
     // should handle the send of data in chunks
-    sendDataChunks_Selective_Repeat(newSocket, client_address, (char *)filePath.c_str());
+    sendDataChunks_Stop_and_Wait(newSocket, client_address, (char *)filePath.c_str());
     // Close the connection
     close(newSocket);
 }

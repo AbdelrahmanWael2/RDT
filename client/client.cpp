@@ -141,9 +141,17 @@ void receiveServerData_Stop_and_Wait()
         {
             // In-order packet received
             printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
-            wf.write(packet.data, packet.len);
-            wf.flush();
-            last_received = packet.seq;
+            if (calculateChecksum(packet.data, packet.len) == packet.cksum)
+            {
+                wf.write(packet.data, packet.len);
+                wf.flush();
+                last_received = packet.seq;
+            }
+            else
+            {
+                cout << "wrong checksum" << endl;
+                continue;
+            }
 
             // Send acknowledgment after receiving and consuming a data packet
             ack.len = 0;
@@ -194,6 +202,9 @@ void receiveServerData_Selective_Repeat()
             cout << "File transfer complete" << endl;
             return;
         }
+
+        // if (calculateChecksum(receivedPacket.data, receivedPacket.len) != receivedPacket.cksum)
+        //     continue;
 
         // Check if the received packet is within the expected window
         if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)
@@ -252,7 +263,7 @@ void receiveServerData_Selective_Repeat()
 int main()
 {
     initializeClient();
-    receiveServerData_Selective_Repeat();
+    receiveServerData_Stop_and_Wait();
     free(pck);
     close(sock_fd);
     return 0;
