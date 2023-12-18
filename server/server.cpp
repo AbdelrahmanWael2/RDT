@@ -10,7 +10,7 @@
 #include <numeric>
 #include <fstream>
 #include <algorithm>
-#define MSS 16 // Maximum Segment Size
+#define MSS 1024 // Maximum Segment Size
 
 using namespace std;
 
@@ -170,7 +170,7 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
             continue; // Skip sending this packet
         }
 
-        if ((rand() % 100) < (PROBABILITY_LOSS * 100))
+        if ((rand() % 100) < 1)
         {
             cout << "Simulating packet defect for packet with seqno: " << packet_to_send.seqno << endl;
             packet_to_send = defect_packet(packets[i]); // defect one bit of the packet
@@ -200,51 +200,14 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
         else if (status == 0)
         {
             // The timeout expired
-            cerr << "Timeout expired" << endl;
-
-            // Implement timeout actions: Set ssthresh, reduce cwnd, and retransmit
-            ssthresh = cwnd / 2;
-            cwnd = INITIAL_CWND;
-            cout << "Here " << i << endl;
+            cerr << "Timeout expired resend" << endl;
             // Retransmit the current packet
             sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                    (sockaddr *)&client_address, sizeof(client_address));
-            continue;
         }
         else
         {
-            if (ack.ackno == expected_ack)
-            {
-                // Acknowledgment is as expected, move to the next packet
-                i++;
-                // Reset duplicate ACK count
-                dupACKcount = 0;
-            }
-            else
-            {
-                // Duplicate ACK received, trigger retransmission
-                dupACKcount++;
-                if (dupACKcount == 3)
-                {
-                    // Fast Recovery
-                    ssthresh = cwnd / 2;
-                    cwnd = ssthresh + 3 * MSS;
-                }
-                else if (dupACKcount > 3)
-                {
-                    // Avoid excessive increase during Fast Recovery
-                    cwnd += MSS;
-                }
-                else
-                {
-                    // Slow Start or Congestion Avoidance
-                    cwnd += MSS;
-                }
-
-                // Retransmit the current packet
-                sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
-                       (sockaddr *)&client_address, sizeof(client_address));
-            }
+            i++;
         }
     }
     packet end_packet;
