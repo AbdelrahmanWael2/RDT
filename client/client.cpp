@@ -131,13 +131,11 @@ void receiveServerData_Stop_and_Wait()
         // receive data in buffer
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
 
-        if (byte_count < 16)
-        { // last
-            // In-order packet received
-            printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
-            wf.write(packet.data, packet.len);
-            wf.flush();
+        if (packet.len == 0)
+        {
+            // end receiving
             cout << "File transfer complete" << endl;
+            return;
         }
         if (packet.seq == ack.ackno)
         {
@@ -189,6 +187,13 @@ void receiveServerData_Selective_Repeat()
         // Receive the packet
         byte_count = recvfrom(sock_fd, &receivedPacket, sizeof(receivedPacket), 0,
                               (struct sockaddr *)&serv_addr, &fromlen);
+
+        if (receivedPacket.len == 0)
+        {
+            // end receiving
+            cout << "File transfer complete" << endl;
+            return;
+        }
 
         // Check if the received packet is within the expected window
         if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)
@@ -247,7 +252,7 @@ void receiveServerData_Selective_Repeat()
 int main()
 {
     initializeClient();
-    receiveServerData_Stop_and_Wait();
+    receiveServerData_Selective_Repeat();
     free(pck);
     close(sock_fd);
     return 0;

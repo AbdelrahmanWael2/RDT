@@ -234,6 +234,10 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
             }
         }
     }
+    packet end_packet;
+    end_packet.len = 0;
+    sendto(sockfd, &end_packet, sizeof(end_packet), 0,
+           (sockaddr *)&client_address, sizeof(client_address));
 }
 
 void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, char *fileName)
@@ -320,6 +324,10 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
             }
         }
     }
+    packet end_packet;
+    end_packet.len = 0;
+    sendto(sockfd, &end_packet, sizeof(end_packet), 0,
+           (sockaddr *)&client_address, sizeof(client_address));
 }
 
 void handle_connection(void *args)
@@ -336,7 +344,7 @@ void handle_connection(void *args)
     sockaddr_in client_address = message_args->client_address;
     string filePath = message_args->filePath;
     // should handle the send of data in chunks
-    sendDataChunks_Stop_and_Wait(newSocket, client_address, (char *)filePath.c_str());
+    sendDataChunks_Selective_Repeat(newSocket, client_address, (char *)filePath.c_str());
     // Close the connection
     close(newSocket);
 }
