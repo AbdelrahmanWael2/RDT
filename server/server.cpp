@@ -64,7 +64,8 @@ packet make_packet(uint32_t seqno, uint16_t len, char data[])
 
     p.chsum = calculateChecksum(data, len);
 
-    strcpy(p.data, data);
+    for (int i = 0; i < len; i++)
+        p.data[i] = data[i];
     return p;
 }
 
@@ -240,9 +241,9 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
 
-    int base = 0;       // base of the sending window
-    int nextSeq = 0;    // next sequence number to be sent
-    int windowSize = 4; 
+    int base = 0;    // base of the sending window
+    int nextSeq = 0; // next sequence number to be sent
+    int windowSize = 4;
 
     vector<bool> ackReceived(n, false);
 
@@ -262,7 +263,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
         // Wait for acknowledgments
         int old_base = base;
         for (int i = base; i < min(old_base + windowSize, static_cast<int>(n)); ++i)
-        {   //cout << "alo"  << endl;
+        { // cout << "alo"  << endl;
             if (!ackReceived[i])
             {
                 ack_packet ack;
@@ -294,7 +295,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     continue;
                 }
                 else
-                {   //cout << "HERE" << endl;
+                { // cout << "HERE" << endl;
                     // Acknowledgment received
                     if (ack.ackno == packets[i].seqno + 1)
                     {
@@ -309,7 +310,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
                         // Update nextSeq based on the received acknowledgment and window size
                         nextSeq = max(nextSeq, static_cast<int>(ack.ackno) + 1);
-                        //break;
+                        // break;
                     }
                     else
                     {
@@ -335,7 +336,7 @@ void handle_connection(void *args)
     sockaddr_in client_address = message_args->client_address;
     string filePath = message_args->filePath;
     // should handle the send of data in chunks
-    sendDataChunks_Selective_Repeat(newSocket, client_address, (char *)filePath.c_str());
+    sendDataChunks_Stop_and_Wait(newSocket, client_address, (char *)filePath.c_str());
     // Close the connection
     close(newSocket);
 }

@@ -131,7 +131,8 @@ void receiveServerData_Stop_and_Wait()
         // receive data in buffer
         byte_count = recvfrom(sock_fd, &packet, sizeof(packet), 0, (struct sockaddr *)&serv_addr, &fromlen);
 
-        if(byte_count < 16){ // last
+        if (byte_count < 16)
+        { // last
             // In-order packet received
             printf("Received packet with SEQ %d and LEN %d\n", packet.seq, packet.len);
             wf.write(packet.data, packet.len);
@@ -177,7 +178,7 @@ void receiveServerData_Selective_Repeat()
     }
 
     vector<packet> receivedPackets;
-    int expectedSeq = 1;  // Next expected sequence number
+    int expectedSeq = 1; // Next expected sequence number
 
     while (true)
     {
@@ -189,16 +190,13 @@ void receiveServerData_Selective_Repeat()
         byte_count = recvfrom(sock_fd, &receivedPacket, sizeof(receivedPacket), 0,
                               (struct sockaddr *)&serv_addr, &fromlen);
 
-        
-
-        
-
         // Check if the received packet is within the expected window
         if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)
         {
             // Check for duplicate packets
             auto it = find_if(receivedPackets.begin(), receivedPackets.end(),
-                              [&](const packet &p) { return p.seq == receivedPacket.seq; });
+                              [&](const packet &p)
+                              { return p.seq == receivedPacket.seq; });
 
             if (it == receivedPackets.end())
             {
@@ -207,7 +205,8 @@ void receiveServerData_Selective_Repeat()
 
                 // Sort received packets based on sequence number
                 sort(receivedPackets.begin(), receivedPackets.end(),
-                     [](const packet &a, const packet &b) { return a.seq < b.seq; });
+                     [](const packet &a, const packet &b)
+                     { return a.seq < b.seq; });
 
                 // Send acknowledgment
                 ack.len = 0;
@@ -245,11 +244,10 @@ void receiveServerData_Selective_Repeat()
     }
 }
 
-
 int main()
 {
     initializeClient();
-    receiveServerData_Selective_Repeat();
+    receiveServerData_Stop_and_Wait();
     free(pck);
     close(sock_fd);
     return 0;
