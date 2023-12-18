@@ -10,14 +10,14 @@
 #include <numeric>
 #include <fstream>
 #include <algorithm>
-#define MSS 1024 // Maximum Segment Size
+#define MSS 10 // Maximum Segment Size
 
 using namespace std;
 
-const int TIMEOUT_SECONDS = 1;
+const int TIMEOUT_SECONDS = 5;
 // const int PORT = 8080;
 const int BUFFER_SIZE = 16;
-const int INITIAL_CWND = 1;
+const int WINDOW_SIZE = 20;
 int PORT;
 int SEED;
 float PROBABILITY_LOSS;
@@ -154,14 +154,14 @@ void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *
     unsigned int n = packets.size();
 
     // Congestion Control Variables
-    int cwnd = INITIAL_CWND;
+    int cwnd = WINDOW_SIZE;
     int ssthresh = 64; // ssthresh
     int dupACKcount = 0;
     bool loss = false;
 
     for (int i = 0; i < static_cast<int>(n);)
     {
-        cout << "cwind = " << cwnd << endl;
+
         packet packet_to_send = packets[i];
         if ((rand() % 100) < (PROBABILITY_LOSS * 100))
         {
@@ -221,25 +221,24 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     vector<packet> packets = readFile(fileName);
     unsigned int n = packets.size();
 
-    int base = 0;    // base of the sending window
-    int nextSeq = 0; // next sequence number to be sent
-    int windowSize = 4;
+    int base = 0; // base of the sending window
+    int ssthresh = 5;
+    int dupAck = 0;
+    int cwnd = MSS;
 
     vector<bool> ackReceived(n, false);
 
     while (base < n)
     {
+        int packetsToSend = min(WINDOW_SIZE, cwnd);
         // Send packets in the window
-        for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
+        for (int i = base; i < min(base + packetsToSend, static_cast<int>(n)); ++i)
         {
             packet packet_to_send = packets[i];
-            // if ((rand() % 100) < (PROBABILITY_LOSS * 100))
-            // {
-            //     cout << "Simulating packet defect for packet with seqno: " << packet_to_send.seqno << endl;
-            //     packet_to_send = defect_packet(packets[i]); // defect one bit of the packet
-            // }
             if (!ackReceived[i])
+
             {
+                cout << "cwind = " << cwnd << endl;
                 cout << "Sending packet with seqno: " << packet_to_send.seqno << endl;
                 sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                        (sockaddr *)&client_address, sizeof(client_address));
@@ -248,8 +247,8 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
         // Wait for acknowledgments
         int old_base = base;
-        for (int i = base; i < min(old_base + windowSize, static_cast<int>(n)); ++i)
-        { // cout << "alo"  << endl;
+        for (int i = base; i < min(old_base + packetsToSend, static_cast<int>(n)); ++i)
+        {
             if (!ackReceived[i])
             {
                 ack_packet ack;
@@ -267,11 +266,16 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     // Timeout, retransmit the unacknowledged packets in the window
                     cout << "Timeout expired, retransmitting packets in the window" << endl;
 
+                    ssthresh = cwnd / 2;
+                    dupAck = 0;
+                    cwnd = MSS;
+
                     // Retransmit packets in the window
-                    for (int i = base; i < min(base + windowSize, static_cast<int>(n)); ++i)
+                    for (int i = base; i < min(base + WINDOW_SIZE, static_cast<int>(n)); ++i)
                     {
                         if (!ackReceived[i])
                         {
+                            cout << "CWND = " << cwnd << endl;
                             cout << "Retransmitting packet with seqno: " << packets[i].seqno << endl;
                             sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
                                    (sockaddr *)&client_address, sizeof(client_address));
@@ -281,31 +285,59 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     continue;
                 }
                 else
-                { // cout << "HERE" << endl;
+                {
                     // Acknowledgment received
                     if (ack.ackno == packets[i].seqno + 1)
                     {
                         cout << "Received ACK for packet with seqno: " << ack.ackno << endl;
                         ackReceived[i] = true;
 
+                        dupAck = 0;
+
+                        // Update cwnd based on congestion avoidance
+                        if (cwnd < ssthresh)
+                        {
+                            cwnd += MSS; // Slow start phase
+                        }
+                        else
+                        {
+                            cwnd += MSS * MSS / cwnd; // Congestion avoidance phase
+                        }
+
                         // Move the base forward
                         while (base < n && ackReceived[base])
                             ++base;
 
                         cout << "base: " << base << endl;
-
-                        // Update nextSeq based on the received acknowledgment and window size
-                        nextSeq = max(nextSeq, static_cast<int>(ack.ackno) + 1);
-                        // break;
                     }
                     else
                     {
-                        // Duplicate ACK received, ignore
+                        // Duplicate ACK received
+                        dupAck++;
+
+                        // If 3 duplicate ACKs are received, initiate Fast Recovery
+                        if (dupAck == 3)
+                        {
+                            cout << "Fast Recovery: Resending unacknowledged packet with seqno: " << packets[i].seqno << endl;
+                            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                                   (sockaddr *)&client_address, sizeof(client_address));
+
+                            // Adjust congestion window to half of ssthresh
+                            ssthresh = max(cwnd / 2, 1);
+                            cwnd = ssthresh + 3 * MSS; // Fast Recovery phase
+
+                            // Move the base forward
+                            while (base < n && ackReceived[base])
+                                ++base;
+
+                            cout << "base: " << base << endl;
+                        }
                     }
                 }
             }
         }
     }
+
     packet end_packet;
     end_packet.len = 0;
     sendto(sockfd, &end_packet, sizeof(end_packet), 0,
@@ -326,7 +358,7 @@ void handle_connection(void *args)
     sockaddr_in client_address = message_args->client_address;
     string filePath = message_args->filePath;
     // should handle the send of data in chunks
-    sendDataChunks_Stop_and_Wait(newSocket, client_address, (char *)filePath.c_str());
+    sendDataChunks_Selective_Repeat(newSocket, client_address, (char *)filePath.c_str());
     // Close the connection
     close(newSocket);
 }
