@@ -10,7 +10,7 @@
 #include <numeric>
 #include <fstream>
 #include <algorithm>
-#define MSS 10 // Maximum Segment Size
+#define MSS 16 // Maximum Segment Size
 
 using namespace std;
 
@@ -141,7 +141,7 @@ int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
         // cout << bytes_received << endl;
         if (bytes_received > 0)
         {
-            return 1; // Valid ACK received
+            return ack.ackno; // Valid ACK received
         }
     }
 
@@ -224,22 +224,31 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     int base = 0; // base of the sending window
     int ssthresh = 5;
     int dupAck = 0;
-    int cwnd = MSS;
+    int cwnd = 2;
+    vector<int> dups;
+    bool loss = false;
 
     vector<bool> ackReceived(n, false);
 
     while (base < n)
     {
-        int packetsToSend = min(WINDOW_SIZE, cwnd);
+        int packetsToSend = cwnd;
         // Send packets in the window
         for (int i = base; i < min(base + packetsToSend, static_cast<int>(n)); ++i)
         {
             packet packet_to_send = packets[i];
-            if (!ackReceived[i])
 
+            if ((rand() % 100) < (0.1 * 100))
+            {
+                cout << "Simulating packet loss for packet with seqno: " << packet_to_send.seqno << endl;
+                
+                continue; // Skip sending this packet
+            }
+
+            if (!ackReceived[i])
             {
                 cout << "cwind = " << cwnd << endl;
-                cout << "Sending packet with seqno: " << packet_to_send.seqno << endl;
+                cout << "Sending packet with seqno: " << packet_to_send.seqno << " base: " << base << endl;
                 sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
                        (sockaddr *)&client_address, sizeof(client_address));
             }
@@ -249,7 +258,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
         int old_base = base;
         for (int i = base; i < min(old_base + packetsToSend, static_cast<int>(n)); ++i)
         {
-            if (!ackReceived[i])
+            while (!ackReceived[i])
             {
                 ack_packet ack;
                 socklen_t client_addr_len = sizeof(client_address);
@@ -286,10 +295,12 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                 }
                 else
                 {
+                    base = status - 1;
                     // Acknowledgment received
-                    if (ack.ackno == packets[i].seqno + 1)
+                    if (ack.ackno == packets[i].seqno + 1) // expected ack
                     {
-                        cout << "Received ACK for packet with seqno: " << ack.ackno << endl;
+                        base++;
+                        cout << "Received ACK for packet with ack no: " << ack.ackno << endl;
                         ackReceived[i] = true;
 
                         dupAck = 0;
@@ -315,11 +326,14 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                         // Duplicate ACK received
                         dupAck++;
 
+                        
+
                         // If 3 duplicate ACKs are received, initiate Fast Recovery
-                        if (dupAck == 3)
+                        if (dupAck > 2)
                         {
-                            cout << "Fast Recovery: Resending unacknowledged packet with seqno: " << packets[i].seqno << endl;
-                            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                            
+                            cout << "Fast Recovery: Resending unacknowledged packet with seqno: " << status << endl;
+                            sendto(sockfd, &packets[status - 1], sizeof(packets[status - 1]), 0,
                                    (sockaddr *)&client_address, sizeof(client_address));
 
                             // Adjust congestion window to half of ssthresh
@@ -331,6 +345,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                                 ++base;
 
                             cout << "base: " << base << endl;
+                            dupAck = 0;
                         }
                     }
                 }
