@@ -10,11 +10,11 @@
 #include <numeric>
 #include <fstream>
 #include <algorithm>
-#define MSS 10 // Maximum Segment Size
+#define MSS 1024 // Maximum Segment Size
 
 using namespace std;
 
-const int TIMEOUT_SECONDS = 5;
+const int TIMEOUT_SECONDS = 1;
 // const int PORT = 8080;
 const int BUFFER_SIZE = 16;
 const int WINDOW_SIZE = 20;
@@ -141,7 +141,7 @@ int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
         // cout << bytes_received << endl;
         if (bytes_received > 0)
         {
-            return 1; // Valid ACK received
+            return ack.ackno; // Valid ACK received
         }
     }
 
@@ -222,9 +222,11 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     unsigned int n = packets.size();
 
     int base = 0; // base of the sending window
-    int ssthresh = 5;
+    int ssthresh = 64;
     int dupAck = 0;
     int cwnd = MSS;
+    int timeouts = 0;
+    int fast = 0;
 
     vector<bool> ackReceived(n, false);
 
@@ -238,6 +240,12 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
             if (!ackReceived[i])
 
             {
+
+                if ((rand() % 100) < (PROBABILITY_LOSS * 100))
+                {
+                    cout << "Simulating packet loss for packet with seqno: " << packet_to_send.seqno << endl;
+                    continue; // Skip sending this packet
+                }
                 cout << "cwind = " << cwnd << endl;
                 cout << "Sending packet with seqno: " << packet_to_send.seqno << endl;
                 sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
@@ -254,7 +262,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                 ack_packet ack;
                 socklen_t client_addr_len = sizeof(client_address);
                 int status = timeOut(sockfd, ack, client_address);
-                cout << "Status: " << status << endl;
+                //cout << "Status: " << status << endl;
 
                 if (status == -1)
                 {
@@ -265,7 +273,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                 {
                     // Timeout, retransmit the unacknowledged packets in the window
                     cout << "Timeout expired, retransmitting packets in the window" << endl;
-
+                    timeouts++;
                     ssthresh = cwnd / 2;
                     dupAck = 0;
                     cwnd = MSS;
@@ -285,8 +293,14 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     continue;
                 }
                 else
-                {
+                {    
+                    if(status > packets.size()){
+                       base  =  n ;
+                       cout << packets.size() << endl;
+                        break; 
+                    } 
                     // Acknowledgment received
+                    base = status - 1;
                     if (ack.ackno == packets[i].seqno + 1)
                     {
                         cout << "Received ACK for packet with seqno: " << ack.ackno << endl;
@@ -305,8 +319,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                         }
 
                         // Move the base forward
-                        while (base < n && ackReceived[base])
-                            ++base;
+                        //base = packets[i].seqno - 1;
 
                         cout << "base: " << base << endl;
                     }
@@ -318,9 +331,10 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                         // If 3 duplicate ACKs are received, initiate Fast Recovery
                         if (dupAck == 3)
                         {
-                            cout << "Fast Recovery: Resending unacknowledged packet with seqno: " << packets[i].seqno << endl;
-                            sendto(sockfd, &packets[i], sizeof(packets[i]), 0,
+                            cout << "Fast Recovery: Resending unacknowledged packet with seqno: " << packets[status].seqno - 1 << endl;
+                            sendto(sockfd, &packets[status - 1], sizeof(packets[status]), 0,
                                    (sockaddr *)&client_address, sizeof(client_address));
+                            fast++;
 
                             // Adjust congestion window to half of ssthresh
                             ssthresh = max(cwnd / 2, 1);
@@ -339,6 +353,8 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     }
 
     packet end_packet;
+    cout << "timeouts: " << timeouts << endl;
+    cout << "fast : " << fast << endl ;
     end_packet.len = 0;
     sendto(sockfd, &end_packet, sizeof(end_packet), 0,
            (sockaddr *)&client_address, sizeof(client_address));
