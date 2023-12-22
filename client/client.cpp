@@ -191,6 +191,7 @@ void receiveServerData_Selective_Repeat()
     struct timeval timeoutInterval;
     timeoutInterval.tv_sec = 1; // Set the timeout to 5 seconds
     timeoutInterval.tv_usec = 0;
+    int defected = 0;
 
     while (true)
     {
@@ -226,19 +227,24 @@ void receiveServerData_Selective_Repeat()
             {
                 // end receiving
                 cout << "File transfer complete" << endl;
+                cout << "Defected packets: " << defected << endl;
                 return;
             }
-            if (calculateChecksum(receivedPacket.data, receivedPacket.len) != receivedPacket.cksum)
-                {cout << "Defect packet requesting resend" << endl;
-                ack.len = 0;
-                ack.ackno = expectedSeq;
-                //cout << "Sending ack : " << ack.ackno << endl;
-                sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-                continue;}
+            
 
             // Check if the received packet is within the expected window
             if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)
             {
+
+                if (calculateChecksum(receivedPacket.data, receivedPacket.len) != receivedPacket.cksum)
+                {cout << "Defect packet requesting resend" << endl;
+                ack.len = 0;
+                defected++;
+                ack.ackno = expectedSeq;
+                //cout << "Sending ack : " << ack.ackno << endl;
+                sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+                continue;
+                }
                 // Check for duplicate packets
                 auto it = find_if(receivedPackets.begin(), receivedPackets.end(),
                                   [&](const packet &p)
@@ -293,6 +299,7 @@ void receiveServerData_Selective_Repeat()
             }
         }
     }
+
 
     wf.close();
     if (!wf.good())
