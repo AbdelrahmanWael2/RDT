@@ -225,8 +225,11 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     int ssthresh = 64;
     int dupAck = 0;
     int cwnd = MSS;
+    
     int timeouts = 0;
     int fast = 0;
+    ofstream outputFile("cwnd.txt");
+    outputFile << cwnd << endl;
 
     vector<bool> ackReceived(n, false);
 
@@ -277,6 +280,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     ssthresh = cwnd / 2;
                     dupAck = 0;
                     cwnd = MSS;
+                    outputFile << cwnd << endl;
 
                     // Retransmit packets in the window
                     for (int i = base; i < min(base + WINDOW_SIZE, static_cast<int>(n)); ++i)
@@ -311,17 +315,19 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                         // Update cwnd based on congestion avoidance
                         if (cwnd < ssthresh)
                         {
-                            cwnd += MSS; // Slow start phase
+                            cwnd += MSS; 
+                            outputFile << cwnd << endl;// Slow start phase
                         }
                         else
                         {
-                            cwnd += MSS * MSS / cwnd; // Congestion avoidance phase
+                            cwnd += MSS * MSS / cwnd;
+                            outputFile << cwnd << endl; // Congestion avoidance phase
                         }
 
                         // Move the base forward
                         //base = packets[i].seqno - 1;
 
-                        cout << "base: " << base << endl;
+                        //cout << "base: " << base << endl;
                     }
                     else
                     {
@@ -338,13 +344,14 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
                             // Adjust congestion window to half of ssthresh
                             ssthresh = max(cwnd / 2, 1);
-                            cwnd = ssthresh + 3 * MSS; // Fast Recovery phase
+                            cwnd = ssthresh + 3 * MSS;
+                            outputFile << cwnd << endl; // Fast Recovery phase
 
                             // Move the base forward
                             while (base < n && ackReceived[base])
                                 ++base;
 
-                            cout << "base: " << base << endl;
+                            //cout << "base: " << base << endl;
                         }
                     }
                 }
