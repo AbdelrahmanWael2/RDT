@@ -202,9 +202,8 @@ void receiveServerData_Selective_Repeat()
         FD_ZERO(&fds);
         FD_SET(sock_fd, &fds);
 
-        
         int val = select(sock_fd + 1, &fds, NULL, NULL, &timeoutInterval);
-        //cout << "VAl  = " << val << endl;
+        // cout << "VAl  = " << val << endl;
 
         if (val == -1)
         {
@@ -212,8 +211,8 @@ void receiveServerData_Selective_Repeat()
         }
         else if (val == 0)
         {
-           // cout << "Sending ack : " << ack.ackno << endl;
-            //sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+            // cout << "Sending ack : " << ack.ackno << endl;
+            // sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
             continue;
         }
         else
@@ -229,6 +228,13 @@ void receiveServerData_Selective_Repeat()
                 cout << "File transfer complete" << endl;
                 return;
             }
+            if (calculateChecksum(receivedPacket.data, receivedPacket.len) != receivedPacket.cksum)
+                {cout << "Defect packet requesting resend" << endl;
+                ack.len = 0;
+                ack.ackno = expectedSeq;
+                //cout << "Sending ack : " << ack.ackno << endl;
+                sendto(sock_fd, &ack, sizeof(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+                continue;}
 
             // Check if the received packet is within the expected window
             if (receivedPacket.seq >= expectedSeq && receivedPacket.seq < expectedSeq + INITIAL_CWND)

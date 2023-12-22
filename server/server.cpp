@@ -47,7 +47,11 @@ typedef struct MessageArgs
 
 uint16_t calculateChecksum(const char *data, uint16_t len)
 {
-    uint32_t sum = std::accumulate(data, data + len, 0);
+    uint32_t sum = 0;
+    for (uint16_t i = 0; i < len; ++i)
+    {
+        sum += data[i];
+    }
     while (sum >> 16)
     {
         sum = (sum & 0xFFFF) + (sum >> 16);
@@ -69,12 +73,6 @@ packet make_packet(uint32_t seqno, uint16_t len, char data[])
     return p;
 }
 
-packet defect_packet(packet p)
-{
-    packet pnew = p;
-    pnew.data[0] = p.data[0] ^ 1;
-    return pnew;
-}
 
 // read the contents of a file into a vector of packet structs
 vector<packet> readFile(char *fileName)
@@ -146,6 +144,13 @@ int timeOut(int sockfd, ack_packet &ack, sockaddr_in &client_address)
     }
 
     return status; // Timeout or error
+}
+
+packet defect_packet(packet p)
+{
+    packet pnew = p;
+    pnew.data[0] = p.data[0] ^ 1;
+    return pnew;
 }
 
 void sendDataChunks_Stop_and_Wait(int sockfd, sockaddr_in client_address, char *fileName)
@@ -222,10 +227,10 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
     unsigned int n = packets.size();
 
     int base = 0; // base of the sending window
-    int ssthresh = 64;
+    int ssthresh = 64000;
     int dupAck = 0;
     int cwnd = MSS;
-    
+
     int timeouts = 0;
     int fast = 0;
     ofstream outputFile("cwnd.txt");
@@ -235,7 +240,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
     while (base < n)
     {
-        int packetsToSend = min(WINDOW_SIZE, cwnd);
+        int packetsToSend = cwnd/MSS;
         // Send packets in the window
         for (int i = base; i < min(base + packetsToSend, static_cast<int>(n)); ++i)
         {
@@ -249,6 +254,14 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     cout << "Simulating packet loss for packet with seqno: " << packet_to_send.seqno << endl;
                     continue; // Skip sending this packet
                 }
+
+                if ((rand() % 100) < (0.1 * 100))
+                {
+                    cout << "Simulating packet defect for packet with seqno: " << packet_to_send.seqno << endl;
+                    packet_to_send = defect_packet(packets[i]); // defect one bit of the packet
+                }
+
+
                 cout << "cwind = " << cwnd << endl;
                 cout << "Sending packet with seqno: " << packet_to_send.seqno << endl;
                 sendto(sockfd, &packet_to_send, sizeof(packet_to_send), 0,
@@ -265,7 +278,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                 ack_packet ack;
                 socklen_t client_addr_len = sizeof(client_address);
                 int status = timeOut(sockfd, ack, client_address);
-                //cout << "Status: " << status << endl;
+                // cout << "Status: " << status << endl;
 
                 if (status == -1)
                 {
@@ -297,12 +310,13 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                     continue;
                 }
                 else
-                {    
-                    if(status > packets.size()){
-                       base  =  n ;
-                       cout << packets.size() << endl;
-                        break; 
-                    } 
+                {
+                    if (status > packets.size())
+                    {
+                        base = n;
+                        cout << packets.size() << endl;
+                        break;
+                    }
                     // Acknowledgment received
                     base = status - 1;
                     if (ack.ackno == packets[i].seqno + 1)
@@ -315,8 +329,8 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                         // Update cwnd based on congestion avoidance
                         if (cwnd < ssthresh)
                         {
-                            cwnd += MSS; 
-                            outputFile << cwnd << endl;// Slow start phase
+                            cwnd += MSS;
+                            outputFile << cwnd << endl; // Slow start phase
                         }
                         else
                         {
@@ -325,9 +339,9 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                         }
 
                         // Move the base forward
-                        //base = packets[i].seqno - 1;
+                        // base = packets[i].seqno - 1;
 
-                        //cout << "base: " << base << endl;
+                        // cout << "base: " << base << endl;
                     }
                     else
                     {
@@ -351,7 +365,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
                             while (base < n && ackReceived[base])
                                 ++base;
 
-                            //cout << "base: " << base << endl;
+                            // cout << "base: " << base << endl;
                         }
                     }
                 }
@@ -361,7 +375,7 @@ void sendDataChunks_Selective_Repeat(int sockfd, sockaddr_in client_address, cha
 
     packet end_packet;
     cout << "timeouts: " << timeouts << endl;
-    cout << "fast : " << fast << endl ;
+    cout << "fast : " << fast << endl;
     end_packet.len = 0;
     sendto(sockfd, &end_packet, sizeof(end_packet), 0,
            (sockaddr *)&client_address, sizeof(client_address));
